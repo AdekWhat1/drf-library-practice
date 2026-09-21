@@ -12,6 +12,7 @@ from borrowing.serializers import (
     BorrowingListSerializer,
     BorrowingSerializer,
 )
+from payment.models import Payment
 from payment.stripe_helper import create_stripe_checkout_session
 
 
@@ -75,7 +76,7 @@ class BorrowingViewSet(
 
         if borrowing.actual_return_date is not None:
             return Response(
-                {"error": "This borrowing has already been returned."},
+                {"error": "This book has already been returned."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -83,8 +84,46 @@ class BorrowingViewSet(
             borrowing.actual_return_date = timezone.now().date()
             borrowing.save()
 
-            borrowing.book.inventory += 1
-            borrowing.book.save()
+            book = borrowing.book
+            book.inventory += 1
+            book.save()
 
-        serializer = BorrowingSerializer(borrowing)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            if borrowing.actual_return_date > borrowing.expected_return_date:
+                fine_payment = create_stripe_checkout_session(
+                    borrowing=borrowing,
+                    request=request,
+                    payment_type=Payment.Type.FINE,
+                )
+
+                message = (
+                    f"⚠️ <b>Book Returned Late! Fine Required!</b>\n\n"
+                    f"• <b>User:</b> {borrowing.user.email}\n"
+                    f"• <b>Book:</b> {borrowing.book.title}\n"
+                    f"• <b>Expected Return:</b> {borrowing.expected_return_date}\n"
+                    f"• <b>Actual Return:</b> {borrowing.actual_return_date}\n"
+                    f"• <b>Fine Amount:</b> ${fine_payment.money_to_pay}\n"
+                    f'• <b>Pay Fine:</b> <a href="{fine_payment.session_url}">Pay here</a>'
+                )
+                send_telegram_message(message)
+
+                return Response(
+                    {
+                        "message": "Book returned with overdue. Fine payment created.",
+                        "fine_payment_url": fine_payment.session_url,
+                        "fine_amount": fine_payment.money_to_pay,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            message = (
+                f"📖 <b>Book Successfully Returned!</b>\n\n"
+                f"• <b>User:</b> {borrowing.user.email}\n"
+                f"• <b>Book:</b> {borrowing.book.title}\n"
+                f"• <b>Return Date:</b> {borrowing.actual_return_date}"
+            )
+            send_telegram_message(message)
+
+            return Response(
+                {"message": "Book successfully returned on time."},
+                status=status.HTTP_200_OK,
+            )
