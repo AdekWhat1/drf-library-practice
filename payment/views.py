@@ -1,5 +1,7 @@
 import stripe
 from django.conf import settings
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -36,6 +38,24 @@ class PaymentViewSet(
             return PaymentListSerializer
         return PaymentSerializer
 
+    @extend_schema(
+        summary="Handle successful Stripe payment callback",
+        parameters=[
+            OpenApiParameter(
+                name="session_id",
+                type=OpenApiTypes.STR,
+                description="Stripe checkout session ID (cs_test_...)",
+                required=True,
+            )
+        ],
+        responses={
+            200: OpenApiResponse(description="Payment verified and marked as PAID."),
+            400: OpenApiResponse(
+                description="Missing session_id or payment not completed."
+            ),
+            404: OpenApiResponse(description="Payment record not found."),
+        },
+    )
     @action(methods=["GET"], detail=False, url_path="success")
     def success(self, request):
         session_id = request.query_params.get("session_id")
