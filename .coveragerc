@@ -1,0 +1,12 @@
+[run]
+source = .
+omit =
+    *venv*
+    *migrations*
+    manage.py
+    library_service/asgi.py
+    library_service/wsgi.py
+    library_service/settings.py
+    */tests/*
+    */admin.py
+    */apps.py
