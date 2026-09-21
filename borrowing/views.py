@@ -1,5 +1,7 @@
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -16,6 +18,22 @@ from payment.models import Payment
 from payment.stripe_helper import create_stripe_checkout_session
 
 
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="is_active",
+            type=OpenApiTypes.BOOL,
+            description="Filter borrowings by active status (true: not returned yet, false: returned)",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="user_id",
+            type=OpenApiTypes.INT,
+            description="Filter borrowings by user ID (admin only)",
+            required=False,
+        ),
+    ]
+)
 class BorrowingViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
@@ -70,6 +88,20 @@ class BorrowingViewSet(
         )
         send_telegram_message(message)
 
+    @extend_schema(
+        summary="Return a borrowed book",
+        description=(
+            "Marks the book as returned, restores inventory stock, "
+            "and creates a fine payment session if returned after the expected date."
+        ),
+        responses={
+            200: OpenApiResponse(
+                description="Book returned successfully (or fine generated)."
+            ),
+            400: OpenApiResponse(description="Book has already been returned."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="return")
     @action(methods=["POST"], detail=True, url_path="return")
     def return_borrowing(self, request, pk=None):
         borrowing = self.get_object()
