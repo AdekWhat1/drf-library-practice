@@ -79,7 +79,6 @@ The API will be available at http://127.0.0.1:8000/.
 Once the server is running, explore and test the endpoints via interactive docs:
 Swagger UI: http://127.0.0.1:8000/api/doc/swagger/
 Redoc: http://127.0.0.1:8000/api/doc/redoc/
-Core Routes:EndpointMethodDescriptionAccess/api/user/register/POSTRegister a new userPublic/api/user/token/POSTObtain JWT access & refresh pairPublic/api/books/GET, POSTList books / Create bookAuthenticated / Admin/api/borrowings/GET, POSTList borrowings / Create borrowingAuthenticated/api/borrowings/<id>/return/POSTReturn borrowed book (fines applied if late)Authenticated/api/payments/GETList user payments (admins see all)Authenticated/api/payments/success/GETStripe success callback validationAuthenticated/api/payments/cancel/GETStripe cancellation messageAuthenticated
 
 💳 Stripe Testing Credentials
 To test payments in Stripe Checkout test mode:
