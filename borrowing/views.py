@@ -12,6 +12,7 @@ from borrowing.serializers import (
     BorrowingListSerializer,
     BorrowingSerializer,
 )
+from payment.stripe_helper import create_stripe_checkout_session
 
 
 class BorrowingViewSet(
@@ -55,12 +56,16 @@ class BorrowingViewSet(
     def perform_create(self, serializer):
         borrowing = serializer.save(user=self.request.user)
 
+        payment = create_stripe_checkout_session(borrowing, self.request)
+
         message = (
             f"📚 <b>New Borrowing Created!</b>\n\n"
             f"• <b>User:</b> {borrowing.user.email}\n"
             f"• <b>Book:</b> {borrowing.book.title}\n"
             f"• <b>Borrow Date:</b> {borrowing.borrow_date}\n"
-            f"• <b>Expected Return:</b> {borrowing.expected_return_date}"
+            f"• <b>Expected Return:</b> {borrowing.expected_return_date}\n"
+            f"• <b>Amount to pay:</b> ${payment.money_to_pay}\n"
+            f'• <b>Payment Link:</b> <a href="{payment.session_url}">Pay here</a>'
         )
         send_telegram_message(message)
 
