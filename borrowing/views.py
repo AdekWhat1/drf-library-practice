@@ -44,7 +44,7 @@ class BorrowingViewSet(
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
-        queryset = self.queryset
+        queryset = self.queryset.select_related("book", "user").prefetch_related("payments")
         user = self.request.user
 
         if not user.is_staff:
