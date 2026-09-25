@@ -44,7 +44,9 @@ class BorrowingViewSet(
     permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
-        queryset = self.queryset.select_related("book", "user").prefetch_related("payments")
+        queryset = self.queryset.select_related("book", "user").prefetch_related(
+            "payments"
+        )
         user = self.request.user
 
         if not user.is_staff:
@@ -98,17 +100,35 @@ class BorrowingViewSet(
             200: OpenApiResponse(
                 description="Book returned successfully (or fine generated)."
             ),
-            400: OpenApiResponse(description="Book has already been returned."),
+            400: OpenApiResponse(
+                description="Book has already been returned or has pending payments."
+            ),
         },
     )
-    @action(methods=["POST"], detail=True, url_path="return")
     @action(methods=["POST"], detail=True, url_path="return")
     def return_borrowing(self, request, pk=None):
         borrowing = self.get_object()
 
+        # 1. Валідація: повторне повернення
         if borrowing.actual_return_date is not None:
             return Response(
                 {"error": "This book has already been returned."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pending_status = (
+            getattr(Payment.Status, "PENDING", "PENDING")
+            if hasattr(Payment, "Status")
+            else "PENDING"
+        )
+        if borrowing.payments.filter(status=pending_status).exists():
+            return Response(
+                {
+                    "error": (
+                        "Cannot return book with pending payments. "
+                        "Please complete pending payments first."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -120,42 +140,44 @@ class BorrowingViewSet(
             book.inventory += 1
             book.save()
 
-            if borrowing.actual_return_date > borrowing.expected_return_date:
-                fine_payment = create_stripe_checkout_session(
-                    borrowing=borrowing,
-                    request=request,
-                    payment_type=Payment.Type.FINE,
-                )
+        is_overdue = borrowing.actual_return_date > borrowing.expected_return_date
 
-                message = (
-                    f"⚠️ <b>Book Returned Late! Fine Required!</b>\n\n"
-                    f"• <b>User:</b> {borrowing.user.email}\n"
-                    f"• <b>Book:</b> {borrowing.book.title}\n"
-                    f"• <b>Expected Return:</b> {borrowing.expected_return_date}\n"
-                    f"• <b>Actual Return:</b> {borrowing.actual_return_date}\n"
-                    f"• <b>Fine Amount:</b> ${fine_payment.money_to_pay}\n"
-                    f'• <b>Pay Fine:</b> <a href="{fine_payment.session_url}">Pay here</a>'
-                )
-                send_telegram_message(message)
-
-                return Response(
-                    {
-                        "message": "Book returned with overdue. Fine payment created.",
-                        "fine_payment_url": fine_payment.session_url,
-                        "fine_amount": fine_payment.money_to_pay,
-                    },
-                    status=status.HTTP_200_OK,
-                )
+        if is_overdue:
+            fine_payment = create_stripe_checkout_session(
+                borrowing=borrowing,
+                request=request,
+                payment_type=Payment.Type.FINE,
+            )
 
             message = (
-                f"📖 <b>Book Successfully Returned!</b>\n\n"
+                f"<b>Book Returned Late! Fine Required!</b>\n\n"
                 f"• <b>User:</b> {borrowing.user.email}\n"
                 f"• <b>Book:</b> {borrowing.book.title}\n"
-                f"• <b>Return Date:</b> {borrowing.actual_return_date}"
+                f"• <b>Expected Return:</b> {borrowing.expected_return_date}\n"
+                f"• <b>Actual Return:</b> {borrowing.actual_return_date}\n"
+                f"• <b>Fine Amount:</b> ${fine_payment.money_to_pay}\n"
+                f'• <b>Pay Fine:</b> <a href="{fine_payment.session_url}">Pay here</a>'
             )
             send_telegram_message(message)
 
             return Response(
-                {"message": "Book successfully returned on time."},
+                {
+                    "message": "Book returned with overdue. Fine payment created.",
+                    "fine_payment_url": fine_payment.session_url,
+                    "fine_amount": fine_payment.money_to_pay,
+                },
                 status=status.HTTP_200_OK,
             )
+
+        message = (
+            f"<b>Book Successfully Returned!</b>\n\n"
+            f"• <b>User:</b> {borrowing.user.email}\n"
+            f"• <b>Book:</b> {borrowing.book.title}\n"
+            f"• <b>Return Date:</b> {borrowing.actual_return_date}"
+        )
+        send_telegram_message(message)
+
+        return Response(
+            {"message": "Book successfully returned on time."},
+            status=status.HTTP_200_OK,
+        )
